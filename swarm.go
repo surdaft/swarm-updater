@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containrrr/shoutrrr"
 	"github.com/containrrr/shoutrrr/pkg/router"
@@ -44,11 +45,24 @@ var servicesUpdated int = 0
 
 // Swarm struct to handle all the service operations
 type Swarm struct {
-	client      DockerClient
-	Blacklist   []*regexp.Regexp
-	LabelEnable bool
-	MaxThreads  int
+	// the docker client for interacting with the swarm
+	client DockerClient
 
+	// if a service name matches this regex then do not try and update it
+	Blacklist []*regexp.Regexp
+
+	// only update services with a label
+	LabelEnable bool
+
+	// how many threads to start for updating services, each thread will process
+	// a service 1-by-1 and can be slowed down using IntervalDelay to avoid
+	// causing too many updates at once
+	MaxThreads int
+
+	// delay between service updates to throttle updates
+	IntervalDelay time.Duration
+
+	// shoutrrr will route notifications to a service for you to see
 	shoutrrr *router.ServiceRouter
 }
 
@@ -176,6 +190,10 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 		log.Debug("Service %s is up to date", service.Spec.Name)
 	}
 
+	// configurable delay allows you to throttle updates and help servers to not
+	// become overwhelmed when updating too many things at once
+	time.Sleep(c.IntervalDelay)
+
 	return nil
 }
 
@@ -216,14 +234,11 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 	}
 
 	// only create as many as we need
-	threads := c.MaxThreads
-	if len(serviceQueue) < threads {
-		threads = len(serviceQueue)
-	}
+	threads := min(c.MaxThreads, len(serviceQueue))
 
 	log.Printf("starting %d threads", threads)
 
-	for i := 0; i < threads; i++ {
+	for i := range threads {
 		wg.Add(1)
 		go func(key int) {
 			defer wg.Done()

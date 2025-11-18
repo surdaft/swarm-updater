@@ -58,7 +58,10 @@ Every command-line option has their corresponding environment variable to config
   environment variable.
 * `--apikey, -k` Key to protect the update endpoint. Can also be enabled by setting the `APIKEY` environment variable.
 * `--max-threads, m` Max number of services that should be updating at once (default: 2)
+* `--notification-uris, n` Shoutrrr notification URIs for container updates. Can also be provided by setting the `NOTIFICATION_URIS` environment variable.
+* `--interval-delay` How long to wait between service updates, in time.Duration format. Default is 1s. This helps throttle updates to avoid overwhelming the swarm.
 * `--help, -h` Show documentation about the supported flags.
+
 
 ## Other environment variables
 
