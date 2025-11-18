@@ -28,10 +28,9 @@ import (
 	"github.com/containrrr/shoutrrr"
 	"github.com/containrrr/shoutrrr/pkg/router"
 	sTypes "github.com/containrrr/shoutrrr/pkg/types"
+	"github.com/distribution/reference"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
-	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"megpoid.dev/go/swarm-updater/log"
@@ -102,7 +101,7 @@ func NewSwarm() (*Swarm, error) {
 }
 
 func (c *Swarm) serviceList(ctx context.Context) ([]swarm.Service, error) {
-	services, err := c.client.ServiceList(ctx, types.ServiceListOptions{})
+	services, err := c.client.ServiceList(ctx, swarm.ServiceListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("ServiceList failed: %w", err)
 	}
@@ -114,7 +113,7 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 	log.Printf("updating service %s", service.Spec.Name)
 
 	image := service.Spec.TaskTemplate.ContainerSpec.Image
-	updateOpts := types.ServiceUpdateOptions{}
+	updateOpts := swarm.ServiceUpdateOptions{}
 
 	// get docker auth
 	encodedAuth, err := c.client.RetrieveAuthTokenFromImage(ctx, image)
@@ -158,7 +157,7 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 		log.Debug("response warning:\n%s", warning)
 	}
 
-	updatedService, _, err := c.client.ServiceInspectWithRaw(ctx, service.ID, types.ServiceInspectOptions{})
+	updatedService, _, err := c.client.ServiceInspectWithRaw(ctx, service.ID, swarm.ServiceInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("cannot inspect service %s to check update status: %w", service.Spec.Name, err)
 	}
