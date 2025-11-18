@@ -24,14 +24,14 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containrrr/shoutrrr"
 	"github.com/containrrr/shoutrrr/pkg/router"
 	sTypes "github.com/containrrr/shoutrrr/pkg/types"
+	"github.com/distribution/reference"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
-	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"megpoid.dev/go/swarm-updater/log"
@@ -45,11 +45,24 @@ var servicesUpdated int = 0
 
 // Swarm struct to handle all the service operations
 type Swarm struct {
-	client      DockerClient
-	Blacklist   []*regexp.Regexp
-	LabelEnable bool
-	MaxThreads  int
+	// the docker client for interacting with the swarm
+	client DockerClient
 
+	// if a service name matches this regex then do not try and update it
+	Blacklist []*regexp.Regexp
+
+	// only update services with a label
+	LabelEnable bool
+
+	// how many threads to start for updating services, each thread will process
+	// a service 1-by-1 and can be slowed down using IntervalDelay to avoid
+	// causing too many updates at once
+	MaxThreads int
+
+	// delay between service updates to throttle updates
+	IntervalDelay time.Duration
+
+	// shoutrrr will route notifications to a service for you to see
 	shoutrrr *router.ServiceRouter
 }
 
@@ -102,7 +115,7 @@ func NewSwarm() (*Swarm, error) {
 }
 
 func (c *Swarm) serviceList(ctx context.Context) ([]swarm.Service, error) {
-	services, err := c.client.ServiceList(ctx, types.ServiceListOptions{})
+	services, err := c.client.ServiceList(ctx, swarm.ServiceListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("ServiceList failed: %w", err)
 	}
@@ -114,7 +127,7 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 	log.Printf("updating service %s", service.Spec.Name)
 
 	image := service.Spec.TaskTemplate.ContainerSpec.Image
-	updateOpts := types.ServiceUpdateOptions{}
+	updateOpts := swarm.ServiceUpdateOptions{}
 
 	// get docker auth
 	encodedAuth, err := c.client.RetrieveAuthTokenFromImage(ctx, image)
@@ -158,7 +171,7 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 		log.Debug("response warning:\n%s", warning)
 	}
 
-	updatedService, _, err := c.client.ServiceInspectWithRaw(ctx, service.ID, types.ServiceInspectOptions{})
+	updatedService, _, err := c.client.ServiceInspectWithRaw(ctx, service.ID, swarm.ServiceInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("cannot inspect service %s to check update status: %w", service.Spec.Name, err)
 	}
@@ -176,6 +189,10 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 	} else {
 		log.Debug("Service %s is up to date", service.Spec.Name)
 	}
+
+	// configurable delay allows you to throttle updates and help servers to not
+	// become overwhelmed when updating too many things at once
+	time.Sleep(c.IntervalDelay)
 
 	return nil
 }
@@ -217,14 +234,11 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 	}
 
 	// only create as many as we need
-	threads := c.MaxThreads
-	if len(serviceQueue) < threads {
-		threads = len(serviceQueue)
-	}
+	threads := min(c.MaxThreads, len(serviceQueue))
 
 	log.Printf("starting %d threads", threads)
 
-	for i := 0; i < threads; i++ {
+	for i := range threads {
 		wg.Add(1)
 		go func(key int) {
 			defer wg.Done()

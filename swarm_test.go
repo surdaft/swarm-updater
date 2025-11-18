@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/api/types/swarm"
 	test "github.com/stretchr/testify/assert"
@@ -16,9 +15,10 @@ import (
 type dockerClientMock struct {
 	DistributionInspectFn        func(ctx context.Context, image, encodedAuth string) (registry.DistributionInspect, error)
 	RetrieveAuthTokenFromImageFn func(ctx context.Context, image string) (string, error)
-	ServiceUpdateFn              func(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (types.ServiceUpdateResponse, error)
-	ServiceInspectWithRawFn      func(ctx context.Context, serviceID string, opts types.ServiceInspectOptions) (swarm.Service, []byte, error)
-	ServiceListFn                func(ctx context.Context, options types.ServiceListOptions) ([]swarm.Service, error)
+	ServiceUpdateFn              func(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options swarm.ServiceUpdateOptions) (swarm.ServiceUpdateResponse, error)
+	ServiceInspectWithRawFn      func(ctx context.Context, serviceID string, opts swarm.ServiceInspectOptions) (swarm.Service, []byte, error)
+	ServiceListFn                func(ctx context.Context, options swarm.ServiceListOptions) ([]swarm.Service, error)
+	ServiceTasksFn               func(ctx context.Context, options swarm.TaskListOptions) ([]swarm.Task, error)
 }
 
 func (s *dockerClientMock) DistributionInspect(ctx context.Context, image, encodedAuth string) (registry.DistributionInspect, error) {
@@ -37,15 +37,15 @@ func (s *dockerClientMock) RetrieveAuthTokenFromImage(ctx context.Context, image
 	return "", nil
 }
 
-func (s *dockerClientMock) ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (types.ServiceUpdateResponse, error) {
+func (s *dockerClientMock) ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options swarm.ServiceUpdateOptions) (swarm.ServiceUpdateResponse, error) {
 	if s.ServiceUpdateFn != nil {
 		return s.ServiceUpdateFn(ctx, serviceID, version, service, options)
 	}
 
-	return types.ServiceUpdateResponse{}, nil
+	return swarm.ServiceUpdateResponse{}, nil
 }
 
-func (s *dockerClientMock) ServiceInspectWithRaw(ctx context.Context, serviceID string, opts types.ServiceInspectOptions) (swarm.Service, []byte, error) {
+func (s *dockerClientMock) ServiceInspectWithRaw(ctx context.Context, serviceID string, opts swarm.ServiceInspectOptions) (swarm.Service, []byte, error) {
 	if s.ServiceInspectWithRawFn != nil {
 		return s.ServiceInspectWithRawFn(ctx, serviceID, opts)
 	}
@@ -53,7 +53,7 @@ func (s *dockerClientMock) ServiceInspectWithRaw(ctx context.Context, serviceID 
 	return swarm.Service{}, nil, nil
 }
 
-func (s *dockerClientMock) ServiceList(ctx context.Context, options types.ServiceListOptions) ([]swarm.Service, error) {
+func (s *dockerClientMock) ServiceList(ctx context.Context, options swarm.ServiceListOptions) ([]swarm.Service, error) {
 	if s.ServiceListFn != nil {
 		return s.ServiceListFn(ctx, options)
 	}
@@ -65,7 +65,7 @@ func TestValidServiceLabel(t *testing.T) {
 	assert := test.New(t)
 
 	s := Swarm{LabelEnable: true}
-	service := &swarm.Service{}
+	service := swarm.Service{}
 
 	ok := s.validService(service)
 	assert.False(ok)
@@ -83,7 +83,7 @@ func TestValidServiceBlacklist(t *testing.T) {
 	assert := test.New(t)
 
 	s := Swarm{LabelEnable: false}
-	service := &swarm.Service{}
+	service := swarm.Service{}
 	service.Spec.Name = "service_foobar"
 
 	ok := s.validService(service)
@@ -114,7 +114,7 @@ func TestUpdateServiceEmpty(t *testing.T) {
 	assert := test.New(t)
 
 	mock := dockerClientMock{}
-	mock.ServiceListFn = func(ctx context.Context, options types.ServiceListOptions) ([]swarm.Service, error) {
+	mock.ServiceListFn = func(ctx context.Context, options swarm.ServiceListOptions) ([]swarm.Service, error) {
 		return []swarm.Service{}, nil
 	}
 
@@ -167,11 +167,11 @@ func TestUpdateServices(t *testing.T) {
 
 	mock := dockerClientMock{}
 
-	mock.ServiceListFn = func(ctx context.Context, options types.ServiceListOptions) ([]swarm.Service, error) {
+	mock.ServiceListFn = func(ctx context.Context, options swarm.ServiceListOptions) ([]swarm.Service, error) {
 		return services, nil
 	}
 
-	mock.ServiceInspectWithRawFn = func(ctx context.Context, serviceID string, opts types.ServiceInspectOptions) (swarm.Service, []byte, error) {
+	mock.ServiceInspectWithRawFn = func(ctx context.Context, serviceID string, opts swarm.ServiceInspectOptions) (swarm.Service, []byte, error) {
 		for _, service := range services {
 			if service.ID == serviceID {
 				return service, nil, nil
@@ -183,7 +183,7 @@ func TestUpdateServices(t *testing.T) {
 		return swarm.Service{}, nil, fmt.Errorf("service not found: %s", serviceID)
 	}
 
-	mock.ServiceUpdateFn = func(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) (types.ServiceUpdateResponse, error) {
+	mock.ServiceUpdateFn = func(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options swarm.ServiceUpdateOptions) (swarm.ServiceUpdateResponse, error) {
 		for _, serv := range services {
 			if serv.ID == serviceID {
 				image := service.TaskTemplate.ContainerSpec.Image
@@ -194,13 +194,13 @@ func TestUpdateServices(t *testing.T) {
 				serv.PreviousSpec.TaskTemplate.ContainerSpec.Image = image
 				serv.Spec.TaskTemplate.ContainerSpec.Image = image + "@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
-				return types.ServiceUpdateResponse{}, nil
+				return swarm.ServiceUpdateResponse{}, nil
 			}
 		}
 
 		assert.Fail("Should be on the service list", "%s isn't on service list", serviceID)
 
-		return types.ServiceUpdateResponse{}, fmt.Errorf("service not found: %s", serviceID)
+		return swarm.ServiceUpdateResponse{}, fmt.Errorf("service not found: %s", serviceID)
 	}
 
 	// disable log

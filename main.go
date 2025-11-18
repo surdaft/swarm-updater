@@ -54,6 +54,7 @@ func run(c *cli.Context) error {
 	swarm.LabelEnable = c.Bool("label-enable")
 	swarm.Blacklist = blacklist
 	swarm.MaxThreads = c.Int("max-threads")
+	swarm.IntervalDelay = c.Duration("interval-delay")
 
 	swarm.AddNotificationUris(c.StringSlice("notification-uris"))
 
@@ -105,6 +106,7 @@ func run(c *cli.Context) error {
 	}
 
 	go func() {
+		log.Printf("starting web server. address=%s endpoint=%s", c.String("listen"), "/apis/swarm/v1/update")
 		if err := e.StartServer(svr); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Web server failed: %s", err.Error())
 		}
@@ -228,6 +230,12 @@ func main() {
 			Name:   "notification-uris, n",
 			Usage:  "shoutrrr notification uris for container updates",
 			EnvVar: "NOTIFICATION_URIS",
+		},
+		cli.DurationFlag{
+			Name:   "interval-delay",
+			Usage:  "delay between service updates",
+			Value:  time.Second,
+			EnvVar: "INTERVAL_DELAY",
 		},
 	}
 
