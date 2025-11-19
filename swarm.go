@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/containrrr/shoutrrr"
 	"github.com/containrrr/shoutrrr/pkg/router"
-	sTypes "github.com/containrrr/shoutrrr/pkg/types"
 	"github.com/distribution/reference"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
@@ -123,7 +121,7 @@ func (c *Swarm) serviceList(ctx context.Context) ([]swarm.Service, error) {
 	return services, nil
 }
 
-func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error {
+func (c *Swarm) updateService(ctx context.Context, start time.Time, service swarm.Service) error {
 	log.Printf("updating service %s", service.Spec.Name)
 
 	image := service.Spec.TaskTemplate.ContainerSpec.Image
@@ -181,10 +179,10 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 
 	if previous != current {
 		servicesUpdated++
-		msg := fmt.Sprintf("Service %s updated to %s", service.Spec.Name, current)
+		msg := fmt.Sprintf("[%s] Service %s updated to %s", time.Since(start).String(), service.Spec.Name, current)
 		log.Printf(msg)
 		if c.shoutrrr != nil {
-			c.shoutrrr.Enqueue(msg)
+			c.shoutrrr.Send(msg, nil)
 		}
 	} else {
 		log.Debug("Service %s is up to date", service.Spec.Name)
@@ -200,16 +198,6 @@ func (c *Swarm) updateService(ctx context.Context, service swarm.Service) error 
 // UpdateServices updates all the services from a Docker swarm that matches the specified image name.
 // If no images are passed then it updates all the services.
 func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Errorf("could not get hostname: %s", err.Error())
-		hostname = "unknown"
-	}
-
-	shoutrrrParams := &sTypes.Params{
-		sTypes.TitleKey: fmt.Sprintf("Swarm updater running on %s", hostname),
-	}
-
 	services, err := c.serviceList(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get service list: %w", err)
@@ -235,6 +223,7 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 
 	// only create as many as we need
 	threads := min(c.MaxThreads, len(serviceQueue))
+	start := time.Now()
 
 	log.Printf("starting %d threads", threads)
 
@@ -274,7 +263,7 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 					}
 				}
 
-				if err = c.updateService(ctx, service); err != nil {
+				if err = c.updateService(ctx, start, service); err != nil {
 					if ctx.Err() == context.Canceled {
 						log.Printf("Service update canceled")
 						return
@@ -290,7 +279,7 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 
 	// now update self
 	if swarmUpdaterService.ID != "na" && c.validService(swarmUpdaterService) {
-		if err := c.updateService(ctx, swarmUpdaterService); err != nil {
+		if err := c.updateService(ctx, start, swarmUpdaterService); err != nil {
 			if ctx.Err() == context.Canceled {
 				log.Printf("Service update canceled")
 			} else {
@@ -300,8 +289,7 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 	}
 
 	if servicesUpdated > 0 {
-		c.shoutrrr.Enqueue(fmt.Sprintf("approx %d services updated", servicesUpdated))
-		c.shoutrrr.Flush(shoutrrrParams)
+		c.shoutrrr.Send(fmt.Sprintf("approx %d services updated - roll out took %s", servicesUpdated, time.Since(start).String()), nil)
 
 		// now reset the counter back to 0
 		servicesUpdated = 0
