@@ -1,5 +1,8 @@
 # Swarm Updater
 
+> Note: This is a fork of codestation/swarm-updater - I needed some more bespoke
+> functionality, so I branched off to add it.
+
 Automatically update Docker services whenever their image is updated. Inspired
 on [containrrr/watchtower](https://github.com/containrrr/watchtower)
 
@@ -28,6 +31,10 @@ the swarm.
     "mycompany/myapp"
   ]
 }
+```
+
+```
+curl -H "Authorization: Bearer xxx" -d '{"images": ["image:latest"]}' http://localhost:8080/apis/swarm/v1/update
 ```
 
 ## Options
