@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
@@ -12,6 +13,7 @@ import (
 // DockerClient interacts with a Docker Swarm.
 type DockerClient interface {
 	DistributionInspect(ctx context.Context, image, encodedAuth string) (registry.DistributionInspect, error)
+	ImageInspect(ctx context.Context, image string) (image.InspectResponse, error)
 	RetrieveAuthTokenFromImage(ctx context.Context, image string) (string, error)
 	ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options swarm.ServiceUpdateOptions) (swarm.ServiceUpdateResponse, error)
 	ServiceInspectWithRaw(ctx context.Context, serviceID string, opts swarm.ServiceInspectOptions) (swarm.Service, []byte, error)
@@ -21,6 +23,10 @@ type DockerClient interface {
 type dockerClient struct {
 	apiClient *client.Client
 	dockerCli command.Cli
+}
+
+func (c *dockerClient) ImageInspect(ctx context.Context, image string) (image.InspectResponse, error) {
+	return c.apiClient.ImageInspect(ctx, image)
 }
 
 func (c *dockerClient) DistributionInspect(ctx context.Context, image, encodedAuth string) (registry.DistributionInspect, error) {

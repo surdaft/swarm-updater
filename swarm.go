@@ -29,6 +29,7 @@ import (
 
 	"github.com/containrrr/shoutrrr"
 	"github.com/containrrr/shoutrrr/pkg/router"
+	"github.com/containrrr/shoutrrr/pkg/types"
 	"github.com/distribution/reference"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
@@ -185,12 +186,52 @@ func (c *Swarm) updateService(ctx context.Context, start time.Time, service swar
 	previous := updatedService.PreviousSpec.TaskTemplate.ContainerSpec.Image
 	current := updatedService.Spec.TaskTemplate.ContainerSpec.Image
 
+	prevRevision := "-"
+	currRevision := "-"
+
+	// grab the image info from the api
+	previousImageInfo, err := c.client.ImageInspect(ctx, previous)
+	if err != nil {
+		slog.Error(fmt.Sprintf("cannot inspect image %s to check update status: %v", previous, err))
+	} else {
+		if v, ok := previousImageInfo.Config.Labels["org.opencontainers.image.revision"]; ok {
+			prevRevision = v
+		}
+	}
+
+	currentImageInfo, err := c.client.ImageInspect(ctx, current)
+	if err != nil {
+		slog.Error(fmt.Sprintf("cannot inspect image %s to check update status: %v", current, err))
+	} else {
+		if v, ok := currentImageInfo.Config.Labels["org.opencontainers.image.revision"]; ok {
+			currRevision = v
+		}
+	}
+
 	if previous != current {
 		servicesUpdated++
-		msg := fmt.Sprintf("[%s] Service %s updated to %s", time.Since(start).String(), service.Spec.Name, current)
-		log.Printf(msg)
+		msg := fmt.Sprintf(
+			"[%s] Service %s updated\n\t**Prev:** `%s`\n\t**Curr:** `%s`\n\t**Prev Revision:** `%s`\n\t**Curr Revision:** `%s`",
+			time.Since(start).Truncate(time.Second).String(),
+			service.Spec.Name,
+			previous,
+			current,
+			prevRevision,
+			currRevision,
+		)
+
 		if c.shoutrrr != nil {
-			c.shoutrrr.Send(msg, nil)
+			hostname, _ := os.Hostname()
+			params := types.Params{
+				"title": fmt.Sprintf("swarm-updater on '%s'", hostname),
+			}
+
+			errs := c.shoutrrr.Send(msg, &params)
+			for _, err := range errs {
+				if err != nil {
+					slog.Error("encountered an error announcing", "err", err)
+				}
+			}
 		}
 	} else {
 		log.Debug("Service %s is up to date", service.Spec.Name)
@@ -303,7 +344,11 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 	}
 
 	if servicesUpdated > 0 {
-		c.shoutrrr.Send(fmt.Sprintf("approx %d services updated - roll out took %s", servicesUpdated, time.Since(start).String()), nil)
+		c.shoutrrr.Send(fmt.Sprintf(
+			"approx %d services updated - roll out took %s",
+			servicesUpdated,
+			time.Since(start).Truncate(time.Second).String(),
+		), nil)
 
 		// now reset the counter back to 0
 		servicesUpdated = 0
