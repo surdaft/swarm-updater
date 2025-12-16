@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -99,6 +101,12 @@ func NewSwarm() (*Swarm, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize docker client: %w", err)
 	}
+
+	slog.Info(
+		"initialising swarm",
+		"client-version", cli.ClientVersion(),
+		"docker-api-version-env", os.Getenv("DOCKER_API_VERSION"),
+	)
 
 	dockerCli, err := command.NewDockerCli()
 	if err != nil {
@@ -188,10 +196,6 @@ func (c *Swarm) updateService(ctx context.Context, start time.Time, service swar
 		log.Debug("Service %s is up to date", service.Spec.Name)
 	}
 
-	// configurable delay allows you to throttle updates and help servers to not
-	// become overwhelmed when updating too many things at once
-	time.Sleep(c.IntervalDelay)
-
 	return nil
 }
 
@@ -233,10 +237,20 @@ func (c *Swarm) UpdateServices(ctx context.Context, imageName ...string) error {
 			defer wg.Done()
 			log.Printf("starting thread %d", key)
 
+			shouldDelay := false
+
 			for {
 				if len(serviceQueue) == 0 {
 					log.Printf("exiting thread %d", key)
 					return
+				}
+
+				if shouldDelay {
+					// configurable delay allows you to throttle updates and help servers to not
+					// become overwhelmed when updating too many things at once
+					time.Sleep(c.IntervalDelay)
+				} else {
+					shouldDelay = true
 				}
 
 				serviceLock.Lock()
